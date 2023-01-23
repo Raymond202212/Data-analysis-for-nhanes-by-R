@@ -1,0 +1,913 @@
+Set the libraries
+
+```{r warning=F, ignore=T}
+library(readxl)
+library(psych)
+library(tidyverse)
+library(janitor)
+library(NHANES)
+library(dplyr)
+library(tidyr)
+library(epiR)
+library(formattable)
+library(ggrepel)
+```
+Overview the file
+```{r}
+head(NHANES)
+tail(NHANES)
+```
+Explore the data
+```{r}
+str(NHANES)
+```
+
+drop nas
+```{r}
+NHANES2 <- drop_na(NHANES)
+describe(NHANES2)
+```
+1. According to the result, it would be unrealistic to drop all the N/As from all the variables, or there would be no data at all.
+2. Adding to the result of describe(NHANES), it would be viable to choose some of the variables to undergo cluster analysis and report.
+3. To handle with missing data, I would be expected to find alternative way instead of dropping it simply.
+4. Based on the integrity and the risk of bias of the variables, I would like to choose some of the meaningful variables to undergo analysis primitively, which belongs to the same subject.
+
+
+How many time points does this survey comprises?
+```{r}
+n_distinct(NHANES$SurveyYr, na.rm=T)
+``` 
+According to the result shown above, this data set comprises data collected in two different time points.
+
+Which time points are they?
+```{r}
+Survey_Year <- table(NHANES$SurveyYr)
+Survey_Year
+```
+Among 10,000 records, half of them were collectd in Octorber 2009 and others in December 2011.
+
+
+1. Since half of the record had been undergone in October 2009 and in December 2011, I would like to separate them in half according to the survey year.
+2. Apart from comparing males and females, I would also like to find and show the trend in the two years.
+
+The data that is collected in 2009.
+```{r}
+nhanes2009 <- filter(NHANES,NHANES$SurveyYr == '2009_10')
+describe(nhanes2009)
+```
+
+And this part is collected in 2011.
+```{r}
+nhanes2011 <- filter(NHANES,NHANES$SurveyYr == '2011_12')
+describe(nhanes2011)
+```
+Deduplication of the record made in 2009 and 2011, respectively
+```{r}
+n_distinct(nhanes2009, na.rm = T) #3568
+n_distinct(nhanes2011, na.rm = T) #4264
+nhanes2009 <- nhanes2009 %>%
+  distinct()
+# nrow(nhanes2009) 3568
+nhanes2011 <- nhanes2011 %>%
+  distinct()
+# nrow(nhanes2011) 4264
+```
+Explore DataFrame collected in 2009 and 2011 respectively
+```{r}
+str(nhanes2009)
+str(nhanes2011)
+```
+
+```{r}
+describe(nhanes2009)
+describe(nhanes2011)
+```
+
+ps: There are some overlapped population between 2009 and 2011, n = (4264 + 3568) - 6779 = 1053
+```{r}
+NHANES3 <- unique(NHANES$ID)
+describe(NHANES3) #n == 6779
+```
+
+1. Based on the integrity and the risk of bias of the the generation of the variables, I would like to choose some of the meaningful variables to undergo analysis primitively. 
+
+2. The variables covered in this report primarily include: 
+  ①baseline factors: Gender, Age, Race, BMI
+  ②research factors:  DaysMentHlthBad, Litle Interest, Depressed, SleepHrsNight, Sleep Trouble, PhysActive, PhysActiveDays
+  
+  
+According to the document https://cran.r-project.org/web/packages/NHANES/NHANES.pdf, due to the fact that some of the variables, including DaysMentHlthBad(>= 12 yrs), littleInterest (>= 18 yrs), depressed (>= 18 yrs), SleepHrsNight (>= 16 yrs), SleepTrouble (>= 16 yrs), PhysActive (>= 12 yrs), the sampling frame would be “the adult of the non-institutionalized civilian resident population of the United States”. Hence, I would like to exclude those who under the age of 18.
+
+```{r}
+nhanes2009Adult <- nhanes2009[which(nhanes2009$Age >= 18), ]
+nhanes2011Adult <- nhanes2011[which(nhanes2011$Age >= 18), ]
+```
+
+```{r}
+describe(nhanes2009Adult) # n = 2580
+describe(nhanes2011Adult) # n = 3099
+```
+Data Preprocessing：
+	Continuous (BMI, SleepHrsNight, DaysMentHlthBad, PhysActiveDays)：Find outliers → process missing data
+	Categorial (Litle Interest, Depressed, Sleep Trouble, PhysActive)：---
+	
+For continuous variables: find outliers
+for Adult BMI in 2009
+```{r}
+describe(nhanes2009Adult$BMI)
+hist(nhanes2009Adult$BMI,
+  xlab = "BMI",
+  main = "Histogram of Adult BMI in 2009",
+)
+boxplot(nhanes2009Adult$BMI)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2009Adult$BMI)$out
+out_ind <- which(nhanes2009Adult$BMI %in% c(out))
+# check the outliers
+nhanes2009Adult[out_ind, ]
+# the most extreame case is a 52-year-old-black female whose weight is 230.7kg and is 168.5cm tall (BMI = 81.25). The similar case has been reported by the article, A Fatal Case of Super-super Obesity (BMI >80) in a Patient with a Necrotic Soft Tissue Infection, doi: 10.2169/internalmedicine.9277-17.
+```
+for Adult BMI in 2011
+```{r}
+describe(nhanes2011Adult$BMI)
+hist(nhanes2011Adult$BMI,
+  xlab = "BMI",
+  main = "Histogram of Adult BMI in 2011",
+)
+boxplot(nhanes2011Adult$BMI)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2011Adult$BMI)$out
+out_ind <- which(nhanes2011Adult$BMI %in% c(out))
+# check the outliers
+nhanes2011Adult[out_ind, ]
+# the most extreame case is a 25-year-old-white female whose weight is 198.7kg and is 157.0cm tall (BMI = 80.61). The similar case has been reported by the article, A Fatal Case of Super-super Obesity (BMI >80) in a Patient with a Necrotic Soft Tissue Infection, doi: 10.2169/internalmedicine.9277-17.
+```
+Therefore, we can say that there is almost no abnormalities in terms of BMI in both 2009 and 2011.
+
+For sleep hours at night of adult in 2009
+```{r}
+describe(nhanes2009Adult$SleepHrsNight)
+hist(nhanes2009Adult$SleepHrsNight,
+  xlab = "SleepHrsNight",
+  main = "Histogram of Adult SleepHrsNight in 2009",
+)
+boxplot(nhanes2009Adult$SleepHrsNight)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2009Adult$SleepHrsNight)$out
+out_ind <- which(nhanes2009Adult$SleepHrsNight %in% c(out))
+# check the outliers
+nhanes2009Adult[out_ind, ]
+# Some of the cases reported themselves sleeping only 2 hours at night, many of whom also reported with sleeping trouble. Others reported themselves sleeping 12 hours per day, which can also be regarded as normal (long-sleeper, https://sleepeducation.org/sleep-disorders/long-sleeper/).
+```
+For sleep hours at night of adult in 2011
+```{r}
+describe(nhanes2011Adult$SleepHrsNight)
+hist(nhanes2011Adult$SleepHrsNight,
+  xlab = "SleepHrsNight",
+  main = "Histogram of Adult SleepHrsNight in 2011",
+)
+boxplot(nhanes2011Adult$SleepHrsNight)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2011Adult$SleepHrsNight)$out
+out_ind <- which(nhanes2011Adult$SleepHrsNight %in% c(out))
+# check the outliers
+nhanes2011Adult[out_ind, ]
+# Some of the cases reported themselves sleeping only 2 hours at night, many of whom also reported with sleeping trouble.
+```
+For DaysMentHlthBad of Adults in 2009
+```{r}
+describe(nhanes2009Adult$DaysMentHlthBad)
+hist(nhanes2009Adult$DaysMentHlthBad,
+  xlab = "DaysMentHlthBad",
+  main = "Histogram of Adult DaysMentHlthBad in 2009",
+)
+boxplot(nhanes2009Adult$DaysMentHlthBad)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2009Adult$DaysMentHlthBad)$out
+out_ind <- which(nhanes2009Adult$DaysMentHlthBad %in% c(out))
+# check the outliers
+nhanes2009Adult[out_ind, ]
+# It is obvious that this is a positive-skewed data, contributing many "outliers" above Q3 + 1.5IQR depicted in boxplot. Most of the adults have no days of bad mental health, or very less day. However, some of them report themselves suffering from bad mental health everyday in a month, which is polarized.
+```
+For DaysMentHlthBad of Adults in 2011
+```{r}
+describe(nhanes2011Adult$DaysMentHlthBad)
+hist(nhanes2011Adult$DaysMentHlthBad,
+  xlab = "DaysMentHlthBad",
+  main = "Histogram of Adult DaysMentHlthBad in 2011",
+)
+boxplot(nhanes2011Adult$DaysMentHlthBad)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2011Adult$DaysMentHlthBad)$out
+out_ind <- which(nhanes2011Adult$DaysMentHlthBad %in% c(out))
+# check the outliers
+nhanes2011Adult[out_ind, ]
+# It is obvious that this is a positive-skewed data, contributing many "outliers" above Q3 + 1.5IQR depicted in boxplot. Most of the adults have no days of bad mental health, or very less day. However, some of them report themselves suffering from bad mental health everyday in a month, which is polarized.
+```
+for PhysActiveDays in 2009
+```{r}
+describe(nhanes2009Adult$PhysActiveDays)
+hist(nhanes2009Adult$PhysActiveDays,
+  xlab = "PhysActiveDays",
+  main = "Histogram of Adult Physical Active Days in 2009",
+  breaks = 8
+)
+boxplot(nhanes2009Adult$PhysActiveDays)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2009Adult$PhysActiveDays)$out
+out_ind <- which(nhanes2009Adult$PhysActiveDays %in% c(out))
+# check the outliers
+nhanes2009Adult[out_ind, ]
+# This is also a positive-skewed data, but no outliers detected according to the boxplot.
+```
+for PhysActiveDays in 2011
+```{r}
+describe(nhanes2011Adult$PhysActiveDays)
+hist(nhanes2011Adult$PhysActiveDays,
+  xlab = "PhysActiveDays",
+  main = "Histogram of Adult BMI in 2011",
+  breaks = 8
+)
+boxplot(nhanes2011Adult$PhysActiveDays)
+# find the outlier in accordance of the boxplot, according to https://statsandr.com/blog/outliers-detection-in-r/
+out <- boxplot.stats(nhanes2011Adult$PhysActiveDays)$out
+out_ind <- which(nhanes2011Adult$PhysActiveDays %in% c(out))
+# check the outliers
+nhanes2011Adult[out_ind, ]
+# This is also a positive-skewed data, but no outliers detected according to the boxplot.
+```
+Find the feature of the null value of PhysActiveDays (to see whether its null value are all associated with answering PhysActive with "no")
+```{r}
+Answer2009 <- nhanes2009Adult[which(is.na(nhanes2009Adult$PhysActiveDays) == T), ]$PhysActive
+as.data.frame(table(Answer2009)) # generate a frequency table from a vector
+Answer2011 <- nhanes2011Adult[which(is.na(nhanes2011Adult$PhysActiveDays) == T), ]$PhysActive
+as.data.frame(table(Answer2011))
+sum(is.na(nhanes2009Adult[which(nhanes2009Adult$PhysActive == 'Yes'), ]$PhysActiveDays))
+sum(is.na(nhanes2009Adult[which(nhanes2011Adult$PhysActive == 'Yes'), ]$PhysActiveDays))
+```
+'''
+Due to the possible illogical data especially in those collected in 2011, especially PhysActiveDays and PhysActive, I decide to rule out these variables for the integrity of the analyzing result.
+'''
+
+Therefore, I would like to modify the variables included in this report as follows, 
+  ①baseline factors: Gender, Age, Race, BMI
+  ②research factors: HealthGen, DaysMentHlthBad, Litle Interest, Depressed, SleepHrsNight, Sleep Trouble
+  
+The key topic of this report mainly focus on mental health, sleep, and overall health strata awareness.
+
+Further analysis for those who omit Days of mental health bad
+```{r}
+Depression2009 <- nhanes2009Adult[which(is.na(nhanes2009Adult$DaysMentHlthBad) == T), ]$Depressed
+as.data.frame(table(Depression2009))
+
+Depression2011 <- nhanes2011Adult[which(is.na(nhanes2011Adult$DaysMentHlthBad) == T), ]$Depressed
+as.data.frame(table(Depression2011))
+```
+We can see that those who omit the variable relevant to Days of mental health bad are seldomly answer the condition of depression.
+
+
+1. For continuous variables, like BMI(0.96% in 2009 and 0.93% in 2011), SleepHrsNight, (0.23% in 2009 and 0.26% in 2011), due to the minor loss of the data, I would like to delete the sample with above missing value directly. 
+
+  And for DaysMentHlthBad(11.78% in 2009 and 9.58% in 2011), I decide not to fill it directly because its omission is highly associated with the omission of the variable, depressed. Instead, I will report N for each category within this variable, and report the number of non-reply of the categorical variables.
+
+2. For categorical variables, SleepTrouble is complete without missing values after setting the sample frame.However, LittleInteres and depressed (12.29% in 2009 and 10.10% in 2011) are missing in some of the samples. And for variable HealthGen, 301/2580 (11.67%) in 2009 and 295/3099 (9.52%) in 2011 are missing.
+
+  ∴ Due to the similarity of the loss proportion of the variable, DaysMentHlthBad, LittleInteres, depressed, HealthGen, due to the possible systematic missing of such data, I would like to find the feature of the record omitted the variable above.
+
+```{r}
+# for 2009 data
+major_omit_2009 <- union(union(union(nhanes2009Adult[which(is.na(nhanes2009Adult$LittleInterest) == T), ], nhanes2009Adult[which(is.na(nhanes2009Adult$DaysMentHlthBad) == T), ]),nhanes2009Adult[which(is.na(nhanes2009Adult$Depressed) == T), ]), nhanes2009Adult[which(is.na(nhanes2009Adult$HealthGen) == T), ])  # n = 319, the union of DaysMentHlthBad, LittleInteres, depressed, HealthGen that are null
+describe(major_omit_2009)
+
+# for 2011 data
+major_omit_2011 <- union(union(union(nhanes2011Adult[which(is.na(nhanes2011Adult$LittleInterest) == T), ], nhanes2011Adult[which(is.na(nhanes2011Adult$DaysMentHlthBad) == T), ]),nhanes2011Adult[which(is.na(nhanes2011Adult$Depressed) == T), ]), nhanes2011Adult[which(is.na(nhanes2011Adult$HealthGen) == T), ]) # n = 316, the union of DaysMentHlthBad, LittleInteres, depressed, HealthGen that are null
+describe(major_omit_2011)
+```
+According to the result shown above, the omission of DaysMentHlthBad, LittleInteres, depressed, HealthGen are highly associated. And it consists of most of the data that are incompleted.
+
+
+Baseline Feature analysis between those who omitted the variables above and "general" population
+```{r}
+# α = 0.05
+# for 2009 data
+# some of the baseline factors
+t.test(nhanes2009Adult$Age,major_omit_2009$Age, conf.level = 0.95) #(-)
+t.test(nhanes2009Adult$BMI,major_omit_2009$BMI, conf.level = 0.95) #(+)
+
+# other potential critical variables
+wilcox.test(nhanes2009Adult$DaysMentHlthBad,major_omit_2009$DaysMentHlthBad) #(-)
+t.test(nhanes2009Adult$SleepHrsNight,major_omit_2009$SleepHrsNight, conf.level = 0.95) #(-)
+
+# for 2011 data
+# some of the baseline factors
+t.test(nhanes2011Adult$Age,major_omit_2011$Age, conf.level = 0.95) #(+)
+t.test(nhanes2011Adult$BMI,major_omit_2011$BMI, conf.level = 0.95) #(+)
+
+# other potential critical variables
+wilcox.test(nhanes2011Adult$DaysMentHlthBad,major_omit_2011$DaysMentHlthBad) #(-)
+t.test(nhanes2011Adult$SleepHrsNight,major_omit_2011$SleepHrsNight, conf.level = 0.95) #(-)
+
+```
+According to the comparative statistics between those who omit the variable and the "overall" population, despite some of the mean and statistical differences in some baseline factors, due to the minor mean difference between two groups such as age and BMI (omission group would probably slightly higher than the overall in both 2009 and 2011), the deviation due to such major omission can probably be explained by random factors.
+
+Final process of the dataset
+
+baseline factors: Gender, Age, Race, BMI
+  	research factors: HealthGen, DaysMentHlthBad, Litle Interest, Depressed, SleepHrsNight, Sleep Trouble
+
+```{r}
+# select all the data that contains omitted record
+# for 2009 data
+overall_omit_2009 <- union(union(major_omit_2009,  nhanes2009Adult[which(is.na(nhanes2009Adult$BMI) == T), ]), nhanes2009Adult[which(is.na(nhanes2009Adult$SleepHrsNight) == T), ])
+  # n = 342, the union of all the variable in report that are null
+describe(overall_omit_2009)
+
+# for 2011 data
+overall_omit_2011 <- union(union(major_omit_2011,  nhanes2011Adult[which(is.na(nhanes2011Adult$BMI) == T), ]), nhanes2011Adult[which(is.na(nhanes2011Adult$SleepHrsNight) == T), ])
+  # n = 345, the union of all the variable in report that are null
+describe(overall_omit_2011)  
+```
+Find the difference set between overall and omitted, then exclude the latter and obtain clean data set
+```{r}
+nhanes2009Adult <- setdiff(nhanes2009Adult,overall_omit_2009)#https://www.jianshu.com/p/105fa299bce2  # n = 2238
+nhanes2011Adult <- setdiff(nhanes2011Adult,overall_omit_2011)  # n = 2754
+```
+
+Analyzing and visualizing data
+Base factors:
+	1.Gender: Male and female count in 2009, 2011, respectively. (Pie chart)
+```{r}
+# 2009
+table(nhanes2009Adult$Gender)
+# from http://www.sthda.com/english/wiki/ggplot2-pie-chart-quick-start-guide-r-software-and-data-visualization
+df <- data.frame(
+  group = c("Female", "Male"),
+  value = c(1116,1122)
+  )
+bp <- ggplot(df, aes(x="", y=value, fill=group))+
+geom_bar(width = 1, stat = "identity")
+
+blank_theme <- theme_minimal()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.border = element_blank(),
+  panel.grid=element_blank(),
+  axis.ticks = element_blank(),
+  plot.title=element_text(size=14, face="bold")
+  )
+
+bp + coord_polar("y", start=0) + blank_theme + theme(axis.text.x=element_blank()) +
+  geom_text(aes(y = value/3 + c(0, cumsum(value)[-length(value)]), 
+            label = percent(value/(1116 + 1122), 2)), size=5) + ggtitle('The proportion of gender in 2009 (n = 2238)')
+
+
+```
+```{r}
+# 2011
+table(nhanes2011Adult$Gender)
+
+# from http://www.sthda.com/english/wiki/ggplot2-pie-chart-quick-start-guide-r-software-and-data-visualization
+df <- data.frame(
+  group = c("Female", "Male"),
+  value = c(1364,1390)
+  )
+bp <- ggplot(df, aes(x="", y=value, fill=group))+
+geom_bar(width = 1, stat = "identity")
+
+blank_theme <- theme_minimal()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.border = element_blank(),
+  panel.grid=element_blank(),
+  axis.ticks = element_blank(),
+  plot.title=element_text(size=14, face="bold")
+  )
+
+bp + coord_polar("y", start=0) + blank_theme + theme(axis.text.x=element_blank()) +
+  geom_text(aes(y = value/3 + c(0, cumsum(value)[-length(value)]), 
+            label = percent(value/(1364 + 1390), 2)), size=5) + ggtitle('The proportion of gender in 2011 (n = 2754)')
+```
+2.Age: 2009, 2011, respectively (histogram) ~ and summary
+```{r}
+# graph for 2009
+# https://zhuanlan.zhihu.com/p/442458087
+ggplot(nhanes2009Adult, aes(x = Age, fill = Gender)) + geom_histogram(bins = 10) +
+    geom_histogram(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..),  
+                 binwidth = 10)+
+  geom_histogram(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1)),     #show the second group into the x axis below
+               binwidth = 10) + coord_flip() + ggtitle('The age distribution by gender in 2009')+ theme(plot.title = element_text(hjust = 0.5))  #https://www.jianshu.com/p/2619d7508150
+  
+# summary for 2009
+  nhanes2009Adult %>%
+  select(Age,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(Age, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n()))))    # for P25, Median, P75, get them into a table
+
+# graph for 2011
+ggplot(nhanes2011Adult, aes(x = Age, fill = Gender)) + geom_histogram(bins = 10) +
+    geom_histogram(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..),  
+                 binwidth = 10)+
+  geom_histogram(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1)),     #show the second group into the x axis below
+               binwidth = 10) + coord_flip() + ggtitle('The age distribution by gender in 2011') +theme(plot.title = element_text(hjust = 0.5))
+
+# summary for 2011
+  nhanes2011Adult %>%
+  select(Age,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(Age, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n())
+                        )))   
+            # for P25, Median, P75, get them into a table
+
+```
+3. 	Race: 2009, 2011, respectively (bar chart) ~ and summary
+```{r}
+# 2009
+ggplot(nhanes2009Adult, aes(x = Race1, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('The race distribution by gender in 2009') +theme(plot.title = element_text(hjust = 0.5))
+
+#2011
+ggplot(nhanes2011Adult, aes(x = Race1, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('The race distribution by gender in 2011') +theme(plot.title = element_text(hjust = 0.5))# describe
+
+# descriptive table
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$Race1)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$Race1)
+
+```
+
+
+4. 	BMI: 2009, 2011, respectively (histogram) ~ and summary (Maybe we should create a new variable that grouping BMI value)
+```{r}
+# grouping BMI according to WHO standard
+# for 2009
+nhanes2009Adult <- nhanes2009Adult %>%
+  mutate(bmi_group = cut(BMI, breaks=c(0,18,25,30,100),right=T))
+#head(nhanes2009Adult)
+# for 2011
+nhanes2011Adult <- nhanes2011Adult %>%
+  mutate(bmi_group = cut(BMI, breaks=c(0,18,25,30,100),right=T))
+#head(nhanes2011Adult)
+
+# histogram for grouped BMI in 2009
+ggplot(nhanes2009Adult, aes(x = bmi_group, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('The BMI classification distribution by gender in 2009') +theme(plot.title = element_text(hjust = 0.5))# describe
+
+
+
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$Depressed)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$Depressed)
+
+# describe
+table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$bmi_group)
+table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$bmi_group)
+
+
+# histogram for grouped BMI in 2011
+
+ggplot(nhanes2011Adult, aes(x = bmi_group, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('The BMI classification distribution by gender in 2011') +theme(plot.title = element_text(hjust = 0.5))# describe
+# describe
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$bmi_group)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$bmi_group)
+
+
+
+```
+BMI descriptive statistics
+```{r}
+nhanes2011Adult %>%
+  select(BMI,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(BMI, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n())
+                        )))   
+            # for P25, Median, P75, get them into a table
+```
+
+Research Factors:
+	1. HealthGen – Self Evaluation of General Health 
+```{r}
+# histogram for grouped HealthGen in 2009
+ggplot(nhanes2009Adult, aes(x = HealthGen, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('The result of self-evaluated general health strata by gender in 2009') +theme(plot.title = element_text(hjust = 0.5)) + scale_x_discrete(limits=rev) # reverse discrete x axis
+
+# describe
+HealthGen2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$HealthGen)
+HealthGen2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$HealthGen)
+HealthGen2009F
+HealthGen2009M
+
+# statistical difference: two independent sample Wilcoxon text, which is for ordinal categorical variable
+# transfer the factor as ordinal data
+# transfer HealthGen into ordered factor
+nhanes2009Adult$HealthGen <- ordered(nhanes2009Adult$HealthGen, levels = c("Excellent","Vgood","Good","Fair","Poor"))
+# create a new variable encoding HealthGen into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2009Adult$HealthGen_rank <- recode(nhanes2009Adult$HealthGen, "Excellent" = 5, "Vgood" = 4, "Good" = 3, "Fair" = 2, "Poor" = 1)     
+#describenhanes2009Adult$HealthGen_rank)
+ggplot(nhanes2009Adult, aes(x = HealthGen_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(HealthGen_rank~Gender, nhanes2009Adult, alternative = 'two.sided')
+```
+
+```{r}
+# histogram for grouped HealthGen in 2011
+ggplot(nhanes2011Adult, aes(x = HealthGen, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..),width=0.7)+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1)),width=0.7     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-evaluated general health state') +theme(plot.title = element_text(hjust = 0.5)) + scale_x_discrete(limits=rev) + theme(plot.margin=unit(rep(3,5),'cm'))  
+  
+
+
+# describe
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$HealthGen)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$HealthGen)
+
+# transfer the factor as ordinal data
+# transfer HealthGen into ordered factor
+nhanes2011Adult$HealthGen <- ordered(nhanes2011Adult$HealthGen, levels = c("Excellent","Vgood","Good","Fair","Poor"))
+# create a new variable encoding HealthGen into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2011Adult$HealthGen_rank <- recode(nhanes2011Adult$HealthGen, "Excellent" = 5, "Vgood" = 4, "Good" = 3, "Fair" = 2, "Poor" = 1)    
+#describenhanes2009Adult$HealthGen_rank)
+ggplot(nhanes2011Adult, aes(x = HealthGen_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(HealthGen_rank~Gender, nhanes2011Adult, alternative = 'two.sided')
+
+```
+
+```{r}
+levels(nhanes2009Adult$HealthGen)
+levels(nhanes2009Adult$Depressed)
+levels(nhanes2009Adult$LittleInterest)
+# Verify if the factor variable is ordered or not
+#is.ordered(nhanes2009Adult$HealthGen)
+#is.ordered(nhanes2009Adult$Depressed)
+```
+	2. DaysMentHlthBad – Days of self-evaluated bad mental health per month
+```{r}
+# histogram for grouped DaysMentHlthBad in 2009
+ggplot(nhanes2009Adult, aes(x = DaysMentHlthBad, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-evaluation of days of bad mental health per month by gender in 2009') +theme(plot.title = element_text(hjust = 0.5)) # describe 
+
+# describe frequency
+DaysMentHlthBad2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$DaysMentHlthBad)
+DaysMentHlthBad2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$DaysMentHlthBad)
+DaysMentHlthBad2009F
+DaysMentHlthBad2009M
+# describe median
+  nhanes2009Adult %>%
+  select(DaysMentHlthBad,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(DaysMentHlthBad, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n()))))    # for P25, Median, P75, get them into a table
+
+# statistical difference: two independent sample Wilcoxon text, which is for ordinal categorical variable
+wilcox.test(DaysMentHlthBad~Gender, nhanes2009Adult, alternative='two.sided')
+```
+  
+```{r}
+# double-bar chart for DaysMentHlthBad in 2011
+
+ggplot(nhanes2011Adult, aes(x = DaysMentHlthBad, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..), width = 0.7)+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1))  , width = 0.7   #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-evaluation of bad mental health days per month') +theme(plot.title = element_text(hjust = 0.5)) +  theme(plot.margin=unit(rep(3,5),'cm'))  # describe
+
+# describe frequency
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$DaysMentHlthBad)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$DaysMentHlthBad)
+
+# describe median, etc
+nhanes2011Adult %>%
+  select(DaysMentHlthBad,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(DaysMentHlthBad, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n()))))    # for P25, Median, P75, get them into a table
+# statistical difference
+wilcox.test(DaysMentHlthBad~Gender, nhanes2011Adult, alternative='two.sided')
+
+```
+	3. LittleInterest – Severity that feel little interest - transfer into ordinal factor - orderly coding - ranked test
+```{r}
+# histogram for grouped LittleInterest in 2009
+ggplot(nhanes2009Adult, aes(x = LittleInterest, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-reported with little interest by gender in 2009') +theme(plot.title = element_text(hjust = 0.5)) #+ scale_x_discrete(limits=rev) # reverse discrete x axis
+# describe
+LittleInterest2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$LittleInterest)
+LittleInterest2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$LittleInterest)
+LittleInterest2009F
+LittleInterest2009M
+
+# statistical difference: two independent sample Wilcoxon text, which is for ordinal categorical variable
+# transfer the factor as ordinal data
+# transfer HealthGen into ordered factor
+nhanes2009Adult$LittleInterest <- ordered(nhanes2009Adult$LittleInterest, levels = c("None",  "Several" ,"Most"))
+# create a new variable encoding HealthGen into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2009Adult$LittleInterest_rank <- recode(nhanes2009Adult$LittleInterest, "Most" = 3, "Several" = 2,  "None" = 1)    
+#describenhanes2009Adult$LittleInterest_rank)
+ggplot(nhanes2009Adult, aes(x = LittleInterest_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(LittleInterest_rank~Gender, nhanes2009Adult, alternative = 'two.sided')
+```
+
+```{r}
+# histogram for grouped LittleInterest in 2011
+ggplot(nhanes2011Adult, aes(x = LittleInterest, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-reported with little interest by gender in 2011') +theme(plot.title = element_text(hjust = 0.5))# describe
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$LittleInterest)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$LittleInterest)
+
+# transfer the factor as ordinal data
+# transfer LittleInterest into ordered factor
+nhanes2011Adult$LittleInterest <- ordered(nhanes2011Adult$LittleInterest, levels = c("None",  "Several" ,"Most"))
+# create a new variable encoding LittleInterest into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2011Adult$LittleInterest_rank <- recode(nhanes2011Adult$LittleInterest, "Most" = 3, "Several" = 2,  "None" = 1)     
+#describenhanes2009Adult$LittleInterest_rank)
+ggplot(nhanes2011Adult, aes(x = LittleInterest_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(LittleInterest_rank~Gender, nhanes2011Adult, alternative = 'two.sided')
+```
+	4. Depressed – Severity that feel depressed - transfer into ordinal factor - orderly coding - ranked test
+```{r}
+# histogram for grouped Depressed in 2009
+ggplot(nhanes2009Adult, aes(x = Depressed, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-reported with depressed by gender in 2009') +theme(plot.title = element_text(hjust = 0.5)) #+ scale_x_discrete(limits=rev) # reverse discrete x axis
+# describe
+Depressed2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$Depressed)
+Depressed2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$Depressed)
+Depressed2009F
+Depressed2009M
+
+# statistical difference: two independent sample Wilcoxon text, which is for ordinal categorical variable
+# transfer the factor as ordinal data
+# transfer HealthGen into ordered factor
+nhanes2009Adult$Depressed <- ordered(nhanes2009Adult$Depressed, levels = c("None",  "Several" ,"Most"))
+# create a new variable encoding Depressed into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2009Adult$Depressed_rank <- recode(nhanes2009Adult$Depressed, "Most" = 3, "Several" = 2,  "None" = 1, missing = 1)     # missing = 1: fill null value by mode
+#describenhanes2009Adult$Depressed_rank)
+ggplot(nhanes2009Adult, aes(x = Depressed_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(Depressed_rank~Gender, nhanes2009Adult, alternative = 'two.sided')
+```
+
+```{r}
+# histogram for grouped Depressed in 2011
+ggplot(nhanes2011Adult, aes(x = Depressed, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() + ggtitle('Self-reported with depressed by gender in 2011') +theme(plot.title = element_text(hjust = 0.5))# describe
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$Depressed)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$Depressed)
+
+# transfer the factor as ordinal data
+# transfer Depressed into ordered factor
+nhanes2011Adult$Depressed <- ordered(nhanes2011Adult$Depressed, levels = c("None",  "Several" ,"Most"))
+# create a new variable encoding Depressed into numeric data according to the level http://www.codebaoku.com/it-r/it-r-209904.html
+nhanes2011Adult$Depressed_rank <- recode(nhanes2011Adult$Depressed, "Most" = 3, "Several" = 2,  "None" = 1, missing = 1)     # missing = 3: fill null value by mode
+#describenhanes2009Adult$LittleInterest_rank)
+ggplot(nhanes2011Adult, aes(x = Depressed_rank, fill = Gender)) + geom_bar()
+
+
+# statistical difference: by two-independent sample ranked test
+wilcox.test(Depressed_rank~Gender, nhanes2011Adult, alternative = 'two.sided')
+```
+	
+	5. SleepHrsNight – Self-reported number of hours study participant usually gets at night on weekdays or workdays
+	For this variable, due to its approximate normal distribution, I would like to perform independent t-test to compare that of male and female in both 2009 and 2011
+```{r}
+# dual-bar plot for sleephrsnight in 2009
+ggplot(nhanes2009Adult, aes(x = SleepHrsNight, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2009Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..))+
+  geom_bar(data = filter(nhanes2009Adult,Gender=='male'),
+               aes(y = ..count..*(-1))     #show the second group into the x axis below
+               ) + coord_flip() +theme(plot.title = element_text(hjust = 0.5)) +  scale_x_continuous(limits = c(1,13),
+                     breaks = c(2,3,4,5,6,7,8,9,10,11,12),
+                     expand = c(0,0)) + ggtitle('Sleep hour at night by gender in 2009')
+
+# describe frequency
+SleepHrsNight2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$SleepHrsNight)
+SleepHrsNight2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$SleepHrsNight)
+SleepHrsNight2009F
+SleepHrsNight2009M
+# describe median
+  nhanes2009Adult %>%
+  select(SleepHrsNight,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(SleepHrsNight, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n()))))    # for mean += sd, get them into a table
+
+# statistical difference: two independent sample Wilcoxon text, which is for ordinal categorical variable
+t.test(SleepHrsNight~Gender, nhanes2009Adult, alternative='two.sided')
+```
+
+```{r}
+# dual-bar plot for sleephrsnight in 2011
+ggplot(nhanes2009Adult, aes(x = SleepHrsNight, fill = Gender)) + 
+    geom_bar(data = filter(nhanes2011Adult,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..), width = 0.7)+
+  geom_bar(data = filter(nhanes2011Adult,Gender=='male'),
+               aes(y = ..count..*(-1)) , width = 0.7    #show the second group into the x axis below
+               ) + coord_flip() +theme(plot.title = element_text(hjust = 0.5)) +  scale_x_continuous(limits = c(1,13),
+                     breaks = c(2,4,6,8,10,12),
+                     expand = c(0,0)) + ggtitle('Sleep hours at night') + theme(plot.margin=unit(rep(3,5),'cm'))
+
+# describe frequency
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$SleepHrsNight)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$SleepHrsNight)
+
+# describe median, etc
+nhanes2011Adult %>%
+  select(SleepHrsNight,Gender) %>% # select weight to summaries
+  drop_na() %>% 
+  group_by(Gender) %>% 
+  summarise(across(SleepHrsNight, 
+                   list(n=~ n(),
+                        min=min,
+                        q25 = ~quantile(., 0.25), 
+                        median=median,
+                        q75 = ~quantile(., 0.75), 
+                        max=max,
+                        IQR=~quantile(., 0.75)-quantile(., 0.25),
+                        mean=mean,
+                        sd=sd,
+                        se=~sd(.)/sqrt(n()),
+                        CI95Lower=~mean(.) - qt(1 - (0.05 / 2), n() - 1)*sd(.)/sqrt(n()),
+
+                        CI95Upper=~mean(.) + qt(1 - (0.05 / 2), n() - 1)*sd(.)/sqrt(n()))))    # for mean += sd, get them into a table
+# statistical difference
+t.test(SleepHrsNight~Gender, nhanes2011Adult, alternative='two.sided')
+```
+	6. SleepTrouble – Participant has told a doctor or other health professional that they had trouble sleeping
+```{r}
+# bar chart for SleepTrouble in 2009
+ggplot(nhanes2009Adult, aes(x = SleepTrouble, fill = Gender)) + geom_bar(position='dodge') + ggtitle('Self-report of sleeping trouble by gender in 2009') + theme(plot.title = element_text(hjust = 0.5))
+# describe
+SleepTrouble2009F <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'female'), ]$SleepTrouble)
+SleepTrouble2009M <- table(nhanes2009Adult[which(nhanes2009Adult$Gender == 'male'), ]$SleepTrouble)
+SleepTrouble2009F
+SleepTrouble2009M
+
+# statistical difference: chi-squrare test for binary variable
+chisq.test(nhanes2009Adult$SleepTrouble, nhanes2009Adult$Gender, correct = F) # N of each of the observation are greater than 50
+
+
+
+# Find OR and 95% CI      This code is derived and referenced from DGIN5400, Week 4
+tab = matrix(c(326,790,225,897),nrow=2,byrow=T)
+rownames(tab) = c("Female","Male")
+colnames(tab) = c("Yes","No")
+
+tab #:(
+
+epi.2by2(tab)
+```
+
+
+```{r}
+# histogram for grouped SleepTrouble in 2011
+ggplot(nhanes2011Adult, aes(x = SleepTrouble, fill = Gender)) + geom_bar(position = 'dodge') + ggtitle('Self-report of sleeping trouble by gender in 2011') + theme(plot.title = element_text(hjust = 0.5))
+# describe
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'female'), ]$SleepTrouble)
+table(nhanes2011Adult[which(nhanes2011Adult$Gender == 'male'), ]$SleepTrouble)
+
+# statistical difference
+chisq.test(nhanes2011Adult$SleepTrouble, nhanes2011Adult$Gender, correct = F)
+
+# Find OR and 95% CI      This code is derived and referenced from DGIN5400, Week 4
+tab = matrix(c(422,942,308,1082),nrow=2,byrow=T)
+rownames(tab) = c("Female","Male")
+colnames(tab) = c("Yes","No")
+
+tab #:(
+
+epi.2by2(tab)
+
+```
+Due to the highly homogeneous result on each variables in 2009 and 2011, I would like to report the result of the survey conducted in 2011. 
+
+
+
+
+
+
+
