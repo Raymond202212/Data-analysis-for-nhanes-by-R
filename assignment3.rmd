@@ -1,0 +1,391 @@
+---
+title: "R Notebook"
+output:
+  html_document: 
+    df_print: paged
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+  library(tidyverse)
+  library(corrr)
+  library("GGally")
+  library(ggplot2)
+  library(car)
+  library(ggpubr)
+  library(nortest)
+  library(tidymodels)
+  library(NHANES)
+  library(Hmisc)
+  library(readxl)
+library(psych)
+library(janitor)
+library(dplyr)
+library(tidyr)
+library(epiR)
+library(formattable)
+library(ggrepel)
+```
+
+
+```{r}
+nhanes <- NHANES
+head(nhanes)
+```
+Data exploring
+```{r}
+#describe(nhanes)
+str(NHANES)
+# There are two years of data, hence to eliminate the impact of time, we can either choose SurveyYr as a factor or just choose the data from either year to undergo analysis.
+```
+Store data from either year
+```{r}
+nhanes2009 <- filter(nhanes, nhanes$SurveyYr == '2009_10')
+nhanes2011 <- filter(nhanes, nhanes$SurveyYr == '2011_12')
+```
+
+Research on those who above the age of 20
+```{r}
+df = filter(nhanes2011, nhanes2011$Age > 20)
+#describe(df)
+```
+Deduplicate the records
+```{r}
+df1 <- df %>%
+  distinct()
+#describe(df1)
+```
+
+
+n = 2944
+
+Since both the "innate" status (including age) and the life style are probability causative factors to sleeping time, considering the objectivity and the intergrity of the data, we shall include gender, age, marital Status as baseline factors, and choose some of the attributes of live style as research factor (TVhrsday, Comphrsday, PhysActive, smokestatus). The factors would be subjected to change due to the multicollinearity.
+
+All the independent variables are not null, but 8 observations from the dependent variable (SleepHrsNight) and 2 observations from the marterinal status are null. So we can simply omit them by doing following analysis directly, which omit NAs automatically.
+
+```{r}
+df1 <- df1[,c('SleepHrsNight', 'Age', 'Gender', 'MaritalStatus', 'TVHrsDay', 'CompHrsDay', 'PhysActive', 'SmokeNow')]
+#describe(df1)
+```
+
+
+
+df1 is what we shall process
+
+Preprocessing the dataframe
+
+For the variable SmokeNow, considering its property, I would like to filter its NA value with another category (NAs are those who have not smoked 100 cigarattes)
+Since SmokeNow only applicable to those who have smoked over 100 cigarettes, I would like to add a new level to this categorical variable by creating a new one
+
+```{r}
+df1 <- df1 %>%
+  mutate(SmokeNowN = ifelse(SmokeNow == 'Yes', 'Yes',
+                            ifelse(SmokeNow == 'No', 'No', 'non-regular smoker')))
+```
+
+```{r}
+df1$SmokeNowN <- df1$SmokeNowN %>%
+  replace_na('non-regular smoker')
+df1 <- df1%>%
+  mutate(SmokeNowN = as.factor(df1$SmokeNowN))
+```
+
+```{r}
+#describe(df1)
+```
+Change TVhrsday and Comphrsday as continuous variable according to their categorical description
+```{r}
+barchart(df1$TVHrsDay, main = 'TV')
+barchart(df1$CompHrsDay, main = 'Computer') # 0_hrs, 0_to_1_hr, 1_hr, 2_hr, 3_hr, 4_hr, More_4_hr
+# We can convert these as 0, 0.5, 1, 2, 3, 4, 5, respectively
+# For TVHrsDay
+df1 <- df1 %>%
+  mutate(TVhrsdayNew = ifelse(TVHrsDay == '0_hrs', 0,
+                            ifelse(TVHrsDay == '0_to_1_hr', 0.5,
+                                   ifelse(TVHrsDay == '1_hr', 1,
+                                          ifelse(TVHrsDay == '2_hr', 2, 
+                                                 ifelse(TVHrsDay == '3_hr', 3, 
+                                                        ifelse(TVHrsDay == '4_hr', 4,
+                                                               ifelse(TVHrsDay == 'More_4_hr',5, NA))))))))
+
+# For CompHrsDay (There is no vacant value)
+df1 <- df1 %>%
+  mutate(CompHrsDayNew = ifelse(CompHrsDay == '0_hrs', 0,
+                            ifelse(CompHrsDay == '0_to_1_hr', 0.5,
+                                   ifelse(CompHrsDay == '1_hr', 1,
+                                          ifelse(CompHrsDay == '2_hr', 2, 
+                                                 ifelse(CompHrsDay == '3_hr', 3, 
+                                                        ifelse(CompHrsDay == '4_hr', 4,
+                                                               ifelse(CompHrsDay == 'More_4_hr',5, NA))))))))
+
+#describe(df1)
+```
+Drop NAs
+1.Drop SmokeNow
+```{r}
+df1 <- df1[,c('SleepHrsNight', 'Age', 'Gender', 'MaritalStatus', 'TVHrsDay', 'CompHrsDay', 'PhysActive', 'SmokeNowN', 'TVhrsdayNew', 'CompHrsDayNew')]
+#describe(df1)
+```
+2. Drop NAs
+```{r}
+df1 <- na.omit(df1)
+#describe(df1)
+```
+Dropping n = 12 records, the description statistic of each variable almost remain the same.
+Therefore, 2932 objects finally enrolled in this study.
+
+Descriptive statistics
+For the dependent (predicted) value
+```{r}
+summary(df1$SleepHrsNight)
+sd(df1$SleepHrsNight, na.rm=TRUE)
+hist(df1$SleepHrsNight)
+boxplot(df1$SleepHrsNight)
+```
+It is reasonable for some individuals who sleep 12 hours at night or those who sleep just 2 hours.
+
+For independent variables
+```{r}
+# Age
+summary(df1$Age)
+sd(df1$Age)
+hist(df1$Age)
+boxplot(df1$Age)
+```
+Gender
+```{r}
+# Gender
+summary(df1$Gender)
+```
+Martial Status
+```{r}
+summary(df1$MaritalStatus)
+```
+Physical Active
+```{r}
+summary(df1$PhysActive)
+```
+Smoke Status
+```{r}
+summary(df1$SmokeNowN) %>%
+  tidy()
+```
+Computer Hours
+```{r}
+summary(df1$CompHrsDayNew)
+sd(df1$CompHrsDayNew, na.rm = T)
+hist(df1$CompHrsDayNew)
+boxplot(df1$CompHrsDayNew)
+```
+TVHours
+```{r}
+summary(df1$TVhrsdayNew)
+sd(df1$TVhrsdayNew, na.rm = T)
+hist(df1$TVhrsdayNew)
+boxplot(df1$TVhrsdayNew)
+```
+Check each variables if there is any relevance to sleep hours / correlation with sleep hours
+H0: Sleeping hour is not relevant to the corresponding variable (There is no change in terms of sleeping hour despite the change of independent variable)
+H1: Sleeping hour is relevant to the corresponding variable
+α = 0.05 
+
+Plotting is necessary in this step
+```{r}
+plot(df1$Age,df1$SleepHrsNight)
+```
+
+Since there might be a quadratic relationship between sleep hour and age, we could either use quadratic term of Age, or just categorize them in order to make the result easily interpreted.
+```{r}
+df1 <- df1 %>%
+  mutate(AgeDecadeN  = cut(df1$Age, breaks = c(19,29,39,49,59,69,80), labels=c("20-29","30-39","40-49",'50-59','60-69','Over 70')),
+         Age2 = Age ** 2)
+```
+
+```{r}
+str(df1)
+```
+
+
+```{r}
+#describe(df1)
+```
+
+
+For age
+```{r}
+anova(lm(SleepHrsNight~Age2+Age, df1))
+```
+
+Gender
+```{R}
+anova(lm(SleepHrsNight~Gender, df1))
+boxplot(SleepHrsNight~Gender,df1)
+ggplot(df1, aes(x = SleepHrsNight, fill = Gender)) +
+    geom_histogram(data = filter(df1,Gender=='female'), # Export histogram by twice
+                 aes(y=..count..),  
+                 binwidth = 1)+
+  geom_histogram(data = filter(df1,Gender=='male'),
+               aes(y = ..count..*(-1)),     #show the second group into the x axis below
+               binwidth = 1) + coord_flip() + ggtitle('The sleep hour distribution by gender in 2011')+ theme(plot.title = element_text(hjust = 0.5))
+```
+Marital Status
+```{r}
+lm(SleepHrsNight~MaritalStatus, df1) %>%
+  tidy()
+anova(lm(SleepHrsNight~MaritalStatus, df1))
+boxplot(SleepHrsNight~MaritalStatus,df1)
+ggplot(df1, aes(x = SleepHrsNight, fill = MaritalStatus), na.rm = T) + geom_histogram(position = 'identity', na.rm = T) + facet_wrap(~MaritalStatus)
+```
+For PhysActive
+```{r}
+lm(SleepHrsNight~PhysActive, df1, na.rm = T)
+anova(lm(SleepHrsNight~PhysActive, df1, na.rm = T))
+boxplot(SleepHrsNight~Gender,df1)
+ggplot(df1, aes(x = SleepHrsNight, fill = PhysActive), na.rm = T) +
+    geom_histogram(data = filter(df1,PhysActive=='No'), # Export histogram by twice
+                 aes(y=..count..),  
+                 binwidth = 1)+
+  geom_histogram(data = filter(df1,PhysActive=='Yes'),
+               aes(y = ..count..*(-1)),     #show the second group into the x axis below
+               binwidth = 1) + coord_flip() + ggtitle('The sleep hour distribution by physical active status in 2011')+ theme(plot.title = element_text(hjust = 0.5))
+```
+For Smoking Status
+```{r}
+lm(SleepHrsNight~SmokeNowN, df1) %>%
+  tidy()
+anova(lm(SleepHrsNight~SmokeNowN, df1))
+boxplot(SleepHrsNight~SmokeNowN,df1)
+ggplot(df1, aes(x = SleepHrsNight, fill = SmokeNowN), na.rm = T) + geom_histogram(position = 'identity', na.rm = T) + facet_wrap(~SmokeNowN)
+```
+For computer usage hour and TV usage
+```{r}
+plot(df1$SleepHrsNight~df1$TVhrsdayNew)
+plot(df1$SleepHrsNight~df1$CompHrsDayNew)
+anova(lm(df1$SleepHrsNight~df1$TVhrsdayNew))
+anova(lm(df1$SleepHrsNight~df1$CompHrsDayNew))
+```
+It seems that there is no linear correlation between sleep hour and TV hour, and sleep hour and Computer hour in this dataset. (Though there seems to be a downgoing trend between sleep hour and computer usage hour)
+
+According to the statistical results above, apart from CompHrsDay and TVHrsDay, the stastistic value of other variables are significant enough to reject H0 and accept H1 (α = 0.05), if we consider the quadratic relationship between age and sleeping hour. 
+
+
+
+Change the reference category of marital status to Married
+```{r}
+df1$MaritalStatus <- relevel(df1$MaritalStatus, ref = 'Married')
+```
+
+```{r}
+reg1 <-lm(SleepHrsNight~Age2+Age+Gender+MaritalStatus+PhysActive+CompHrsDayNew+TVhrsdayNew+SmokeNowN, df1)
+summary(reg1)
+# Therefore omitting 10 observations.
+
+# 95% CI for each beta in reg1
+coefficients(reg1) %>%
+  tidy()
+confint(reg1)
+# Anova for reg1
+anova(reg1)
+# vif analysis for reg1
+vif(reg1)
+```
+
+The linear regression model for night sleeping hour is:
+
+Night_sleeping_hour = 8.354 + 0.0007 * Age ** 2 + -0.069 * Age - 0.116 * Gender_Male - 0.318 * Divorced + 0.016 * Live_Partner - 0.134 * Never_Married - 0.502 * Separated - 0.368 * Widowed + 0.113 * Physically_Active + 0.035 * Computer_usage_hour - 0.005 * TV_usage_hour - 0.007 * Non-regular_smoker - 0.355 * Active_regular_smoker + ϵ
+
+According to the linear regression model, the length of TV usage does not seem to have a significant effect on sleeping hour (p = 0.79, β = 0.0045), while the length of computer usages have a very margin effect on sleeping hour (p = 0.053, β = 0.035). Apart from that, other variables, including Age, Gender, some particular marital status comparing to Married status, Physical Active status, and smoking status (No comparing to yes), have significant impact on sleeping hour.
+
+
+However, the Adjusted R-squared is mere 0.05201, indicating that the impact factor for sleeping hour is a fairly complex issues apart from the factors mentioned here. For example, Age (quadratic), BMI, depression status, and more, are also the factors that may be the factors relavant to sleeping hours, however, many of these factors have complex relationships with sleeping hours since they could be both causal and the result. (I have tried many potential causal factors but the adjusted R-squared seldomly goes up to 0.08.) Additionally, the reason why I do not include them into the LR model is that they could also be the result of sleeping hour.
+
+
+Vif result show that apart from Age2 and Age, which are with internal correlation because age2 = age ** 2, there is no other variables with multicollinearity (vif <= 1.71), indicating the relationship between variable are fairly independent (if we consider Age2 and Age as one variable).
+
+
+To see the normality of the residual
+```{r}
+  ggplot(reg1) +
+  stat_qq(aes(sample = .stdresid)) +
+  geom_abline(alpha = 1/5)
+```
+Most residuals, apart from some outliers, are nearly normally distributed
+```{r}
+  ggplot(reg1) +
+  geom_histogram(aes(x=.stdresid),binwidth = .10)+
+  stat_function(fun = function(x) dnorm(x, mean = 0, sd = 0.8327) * 2517*.09 ,
+    color = "darkred", size = 1)
+```
+
+
+Check the normality and variance-consistency of the residual of the model
+```{r}
+  ggplot(reg1, aes(.fitted, .resid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0,linetype = "dotted") +
+  geom_smooth(se = FALSE,colour = "red")
+```
+Plot of residuals vs predictors
+```{r}
+#Age+Gender+MaritalStatus+PhysActive+CompHrsDayNew+TVhrsdayNew+SmokeNowN
+  #Agep <- 
+  ggplot(reg1, aes(Age, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+
+  #Genderp <- 
+  ggplot(reg1, aes(Gender, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+
+  #MaritalStatusp <- 
+  ggplot(reg1, aes(MaritalStatus, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+
+
+  #PhysActivep <- 
+  ggplot(reg1, aes(PhysActive, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+  
+  #CompHrsDayNewp <-
+  ggplot(reg1, aes(CompHrsDayNew, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+  
+  #TVhrsdayNewp <- 
+  ggplot(reg1, aes(TVhrsdayNew, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+  
+  #SmokeNowNp <- 
+  ggplot(reg1, aes(SmokeNowN, .stdresid)) +
+  geom_point(alpha = 1/5) +
+  geom_hline(yintercept = 0) +
+  geom_smooth(se = FALSE,colour = "red")
+  
+  
+#  figure5 <- ggarrange(Agep, Genderp, MaritalStatusp, PhysActivep, CompHrsDayNewp, TVhrsdayNewp, SmokeNowNp,
+#                    labels = c("Age", "Gender", "Marital Status", "Physically active status", "Computer hours a day", "TV hours a day", "Smoking status"),
+ #                   ncol = 3, nrow = 3)
+ # figure5
+```
+
+Note that it does not include processed existed variable, like Age ** 2
+
+
+Despite the predicted value seems not so continuous, according to the result above, the linear regression model meets both assumptions (1. each observation is independent; 2. ϵ~(0, σ^2))
+
+
+
